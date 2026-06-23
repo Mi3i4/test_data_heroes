@@ -1,4 +1,5 @@
-import { CHANNELS, NOTIFICATION_TYPES } from '../application/preferencesService.js';
+import { CHANNEL_BY_TYPE, CHANNELS, NOTIFICATION_TYPES } from '../application/preferencesService.js';
+import type { Channel, NotificationType } from '../application/preferencesService.js';
 import { ValidationError } from './errors.js';
 
 const TIME_PATTERN = '^([01][0-9]|2[0-3]):[0-5][0-9]$';
@@ -10,6 +11,16 @@ export function assertValidDatetime(value: string): void {
 
   if (!isWellFormed || Number.isNaN(parsed.getTime())) {
     throw new ValidationError(`Invalid datetime: ${value}`);
+  }
+}
+
+export function assertConsistentTypeChannel(type: NotificationType, channel: Channel): void {
+  const expected = CHANNEL_BY_TYPE[type];
+
+  if (channel !== expected) {
+    throw new ValidationError(
+      `channel "${channel}" does not match notification type "${type}" (expected "${expected}")`,
+    );
   }
 }
 

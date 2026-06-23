@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { PreferencesService, UpdatePreferencesInput } from '../../application/preferencesService.js';
-import { assertValidTimezone } from '../validation.js';
+import { assertConsistentTypeChannel, assertValidTimezone } from '../validation.js';
 
 interface UserIdParams {
   userId: string;
@@ -20,6 +20,10 @@ export function makePreferencesController(service: PreferencesService) {
       request: FastifyRequest<{ Params: UserIdParams; Body: UpdatePreferencesInput }>,
       reply: FastifyReply,
     ): Promise<void> {
+      for (const entry of request.body.preferences ?? []) {
+        assertConsistentTypeChannel(entry.notificationType, entry.channel);
+      }
+
       if (request.body.quietHours) {
         assertValidTimezone(request.body.quietHours.timezone);
       }
