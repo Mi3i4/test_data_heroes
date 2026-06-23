@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.js';
+import { resetDb } from './helpers/dbHelper.js';
 
 describe('POST /evaluate', () => {
   let app: FastifyInstance;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await resetDb();
     app = buildApp();
   });
 
@@ -17,13 +19,41 @@ describe('POST /evaluate', () => {
     datetime: '2026-05-21T21:30:00Z',
   };
 
-  it('returns 200 with a decision/reason shape for a valid request', async () => {
-    const response = await app.inject({ method: 'POST', url: '/evaluate', payload: validPayload });
+  it('returns allow for a transactional type with no overrides, no policy, no quiet hours', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/evaluate',
+      payload: { ...validPayload, notificationType: 'transactional_email', region: 'US' },
+    });
 
     expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(['allow', 'deny']).toContain(body.decision);
-    expect(body).toHaveProperty('reason');
+    expect(response.json()).toEqual({ decision: 'allow', reason: null });
+  });
+
+  it('Сценарий 4.1: глобальная политика запрещает marketing_sms/sms в EU', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/evaluate',
+      payload: { ...validPayload, notificationType: 'marketing_sms', channel: 'sms', region: 'EU' },
+    });
+
+    expect(response.json()).toEqual({ decision: 'deny', reason: 'blocked_by_global_policy' });
+  });
+
+  it('Сценарий 4.2: та же пара в регионе US не блокируется политикой EU', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/users/user-1/preferences',
+      payload: { preferences: [{ notificationType: 'marketing_sms', channel: 'sms', enabled: true }] },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/evaluate',
+      payload: { ...validPayload, notificationType: 'marketing_sms', channel: 'sms', region: 'US' },
+    });
+
+    expect(response.json()).toEqual({ decision: 'allow', reason: null });
   });
 
   it('returns 400 when a required field is missing', async () => {
@@ -56,6 +86,17 @@ describe('POST /evaluate', () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it('returns 400 when channel is inconsistent with the notification type', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/evaluate',
+      payload: { ...validPayload, notificationType: 'marketing_email', channel: 'push' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('validation_error');
+  });
+
   it('returns 400 for a malformed datetime', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -70,7 +111,7 @@ describe('POST /evaluate', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/evaluate',
-      payload: { ...validPayload, datetime: '2026-05-21T21:30Z' },
+      payload: { ...validPayload, notificationType: 'transactional_email', datetime: '2026-05-21T21:30Z' },
     });
 
     expect(response.statusCode).toBe(200);
